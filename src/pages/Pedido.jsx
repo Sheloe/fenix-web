@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, ChevronRight, Loader } from 'lucide-react';
+
+// --- Imports de Firebase (Storage ya no es necesario) ---
 import { collection, addDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 
-// --- IMPORTACIÓN DE COMPONENTES REFACTORIZADOS ---
+// --- Imports de Componentes ---
 import SEO from '../components/SEO';
 import BarraProgreso from '../components/pedido/ui/BarraProgreso';
 import Paso1Cliente from '../components/pedido/pasos/Paso1Cliente';
@@ -14,8 +16,7 @@ import Paso4Confirmacion from '../components/pedido/pasos/Paso4Confirmacion';
 import MensajeFinal from '../components/pedido/MensajeFinal';
 
 const Pedido = () => {
-    // --- LÓGICA Y ESTADO CENTRALIZADO ---
-    // El componente padre mantiene todo el estado y las funciones lógicas.
+    // El estado y las funciones de navegación no cambian
     const [pasoActual, setPasoActual] = useState(1);
     const [formData, setFormData] = useState({
         cliente: { nombre: '', empresa: '', email: '', whatsapp: '', cuitDni: '' },
@@ -40,6 +41,7 @@ const Pedido = () => {
         }
     };
 
+    // Tu lógica de validación de pasos está bien, la mantenemos.
     const validarPaso = () => {
         const nuevosErrores = {};
         if (pasoActual === 1) {
@@ -52,7 +54,7 @@ const Pedido = () => {
             if (formData.prendas.length === 0) nuevosErrores.prendas = 'Debes agregar al menos una combinación de prenda.';
         }
         if (pasoActual === 3) {
-            if (formData.personalizacion.tieneDiseno === 'si' && !formData.personalizacion.archivo) nuevosErrores.archivo = 'Debes subir un archivo de diseño.';
+            // Ya no validamos la subida de archivo
             if (!formData.personalizacion.tipoTrabajo) nuevosErrores.tipoTrabajo = 'Debes seleccionar un tipo de trabajo.';
             if (!formData.personalizacion.ubicacion) nuevosErrores.ubicacion = 'Debes seleccionar una ubicación.';
             if (!formData.personalizacion.tamano) nuevosErrores.tamano = 'Debes seleccionar un tamaño.';
@@ -63,25 +65,18 @@ const Pedido = () => {
         setErrores(nuevosErrores);
         return Object.keys(nuevosErrores).length === 0;
     };
-
-    const siguientePaso = () => {
-        if (validarPaso()) {
-            setDireccionAnimacion(1);
-            setPasoActual(prev => prev < 4 ? prev + 1 : prev);
-            window.scrollTo(0, 0);
-        }
-    };
     
-    const pasoAnterior = () => {
-        setDireccionAnimacion(-1);
-        setPasoActual(prev => prev > 1 ? prev - 1 : prev);
-        window.scrollTo(0, 0);
-    };
+    const siguientePaso = () => { if (validarPaso()) { setDireccionAnimacion(1); setPasoActual(p => p < 4 ? p + 1 : p); window.scrollTo(0, 0); } };
+    const pasoAnterior = () => { setDireccionAnimacion(-1); setPasoActual(p => p > 1 ? p - 1 : p); window.scrollTo(0, 0); };
 
+    // --- FUNCIÓN DE ENVÍO FINAL Y CORRECTA ---
     const handleEnviarPedido = async () => {
         if (!validarPaso()) return;
         setEstadoEnvio("enviando");
+
         try {
+            // --- 1. PREPARAR DATOS PRINCIPALES DEL PEDIDO ---
+            // Creamos el objeto principal SIN el array de items y sin el objeto de archivo.
             const pedidoData = {
                 cliente: formData.cliente.nombre,
                 empresa: formData.cliente.empresa || "N/A",
@@ -92,29 +87,63 @@ const Pedido = () => {
                 fecha_creacion: Timestamp.now(),
                 fecha_actualizacion: Timestamp.now(),
                 responsable: "formulario-web",
-                personalizacion: formData.personalizacion
+                personalizacion: {
+                    tieneDiseno: formData.personalizacion.tieneDiseno,
+                    tipoTrabajo: formData.personalizacion.tipoTrabajo,
+                    ubicacion: formData.personalizacion.ubicacion,
+                    tamano: formData.personalizacion.tamano,
+                },
             };
+            
+            // --- 2. GUARDAR DATOS EN FIRESTORE ---
+            // Primero, guardamos el documento principal del pedido para obtener su ID.
             const pedidoDocRef = await addDoc(collection(db, "pedidos"), pedidoData);
             setPedidoIdGenerado(pedidoDocRef.id);
+
+            // Segundo, guardamos los items y el historial en sus propias subcolecciones.
             const itemsPromises = formData.prendas.map(p => addDoc(collection(pedidoDocRef, "items"), p));
-            await Promise.all(itemsPromises);
-            await addDoc(collection(pedidoDocRef, "historial"), {
+            const historialPromise = addDoc(collection(pedidoDocRef, "historial"), {
                 usuario: "cliente_web",
                 accion: "Pedido creado desde formulario.",
                 fecha: Timestamp.now(),
-                detalles: `El cliente ${formData.cliente.nombre} envió la solicitud.`
             });
-            // Lógica de EmailJS...
+
+            await Promise.all([...itemsPromises, historialPromise]);
+
+            // --- 3. LLAMAR A LA FUNCIÓN DE NETLIFY PARA NOTIFICACIÓN ---
+            const templateParams = {
+              to_name: formData.cliente.nombre,
+              from_name: "Fénix Indumentaria",
+              message: `ID de Pedido: ${pedidoDocRef.id}`,
+              to_email: formData.cliente.email,
+            };
+
+            const response = await fetch('/.netlify/functions/enviar-presupuesto', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ templateParams }),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Error en la respuesta del servidor de notificaciones.');
+            }
+            
             setEstadoEnvio("exito");
+
         } catch (error) {
-            console.error("Error al guardar el pedido:", error);
+            console.error("Error en el proceso de envío:", error);
+            if (error.code === 'permission-denied') {
+                console.error("Error de Firestore: La data enviada no cumple con las reglas de seguridad.");
+            }
             setEstadoEnvio("error");
         }
     };
 
-    if (estadoEnvio === 'exito') return <MensajeFinal tipo="exito" pedidoId={pedidoIdGenerado} />;
+    if (estadoEnvio === 'exito') return <MensajeFinal tipo="exito" pedidoId={pedidoIdGenerado} formData={formData} />;
     if (estadoEnvio === 'error') return <MensajeFinal tipo="error" setEstadoEnvio={setEstadoEnvio} />;
 
+    // El JSX para renderizar el componente no cambia.
     return (
         <>
             <SEO
@@ -174,5 +203,3 @@ const Pedido = () => {
 };
 
 export default Pedido;
-// Este componente Pedido maneja todo el flujo de creación de un pedido de indumentaria laboral.
-// Utiliza Framer Motion para animaciones suaves entre pasos y EmailJS para el envío de correos
