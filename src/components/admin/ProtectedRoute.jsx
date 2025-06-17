@@ -9,7 +9,8 @@ import { useAuth } from '../../context/AuthContext';
 // ¡MUCHO MÁS SEGURO! Estos UIDs no revelan información personal.
 // Reemplazá el valor de ejemplo con el UID que copiaste de la consola de Firebase.
 const ALLOWED_ADMIN_UIDS = [
-  "dXEvLev3x1cmmbpCyIRyjGKyPd83" 
+  "dXEvLev3x1cmmbpCyIRyjGKyPd83", // Reemplazá con tu UID de administrador real.
+  // Podés encontrar tu UID en la consola de Firebase, en la sección de Autenticación.
   // Si en el futuro tenés otro administrador, agregarías su UID aquí en una nueva línea:
   // , "OTRO_UID_DE_ADMIN_SI_LO_HUBIERA" 
 ];

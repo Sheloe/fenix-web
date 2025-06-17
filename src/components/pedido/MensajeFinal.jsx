@@ -18,7 +18,7 @@ const MensajeFinal = ({ tipo, setEstadoEnvio, pedidoId }) => {
       color: "red"
     }
   };
-  const { icono, titulo, mensaje, color } = config[tipo];
+  const { icono, titulo, mensaje } = config[tipo];
 
   return (
     <div className="bg-gray-100 min-h-screen p-4 sm:p-8 flex items-center justify-center">
