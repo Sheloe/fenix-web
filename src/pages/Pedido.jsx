@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, ChevronRight, Loader } from 'lucide-react';
 
-// --- Imports de Firebase (Storage ya no es necesario) ---
+// --- Imports de Firebase ---
 import { collection, addDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 
@@ -41,7 +41,6 @@ const Pedido = () => {
         }
     };
 
-    // Tu lógica de validación de pasos está bien, la mantenemos.
     const validarPaso = () => {
         const nuevosErrores = {};
         if (pasoActual === 1) {
@@ -54,8 +53,9 @@ const Pedido = () => {
             if (formData.prendas.length === 0) nuevosErrores.prendas = 'Debes agregar al menos una combinación de prenda.';
         }
         if (pasoActual === 3) {
-            // Ya no validamos la subida de archivo
-            if (!formData.personalizacion.tipoTrabajo) nuevosErrores.tipoTrabajo = 'Debes seleccionar un tipo de trabajo.';
+            if (formData.personalizacion.tieneDiseno === 'si' && !formData.personalizacion.tipoTrabajo) {
+                nuevosErrores.tipoTrabajo = 'Debes seleccionar un tipo de trabajo.';
+            }
             if (!formData.personalizacion.ubicacion) nuevosErrores.ubicacion = 'Debes seleccionar una ubicación.';
             if (!formData.personalizacion.tamano) nuevosErrores.tamano = 'Debes seleccionar un tamaño.';
         }
@@ -69,14 +69,12 @@ const Pedido = () => {
     const siguientePaso = () => { if (validarPaso()) { setDireccionAnimacion(1); setPasoActual(p => p < 4 ? p + 1 : p); window.scrollTo(0, 0); } };
     const pasoAnterior = () => { setDireccionAnimacion(-1); setPasoActual(p => p > 1 ? p - 1 : p); window.scrollTo(0, 0); };
 
-    // --- FUNCIÓN DE ENVÍO FINAL Y CORRECTA ---
+    // --- FUNCIÓN DE ENVÍO CON LÍNEA DE DEPURACIÓN ---
     const handleEnviarPedido = async () => {
         if (!validarPaso()) return;
         setEstadoEnvio("enviando");
 
         try {
-            // --- 1. PREPARAR DATOS PRINCIPALES DEL PEDIDO ---
-            // Creamos el objeto principal SIN el array de items y sin el objeto de archivo.
             const pedidoData = {
                 cliente: formData.cliente.nombre,
                 empresa: formData.cliente.empresa || "N/A",
@@ -95,12 +93,14 @@ const Pedido = () => {
                 },
             };
             
-            // --- 2. GUARDAR DATOS EN FIRESTORE ---
-            // Primero, guardamos el documento principal del pedido para obtener su ID.
+            // --- LÍNEA DE DEPURACIÓN TEMPORAL ---
+            // Esta línea mostrará en la consola del navegador el objeto exacto que se intenta guardar.
+            console.log("Objeto que se enviará a Firestore:", pedidoData);
+            // ------------------------------------
+
             const pedidoDocRef = await addDoc(collection(db, "pedidos"), pedidoData);
             setPedidoIdGenerado(pedidoDocRef.id);
 
-            // Segundo, guardamos los items y el historial en sus propias subcolecciones.
             const itemsPromises = formData.prendas.map(p => addDoc(collection(pedidoDocRef, "items"), p));
             const historialPromise = addDoc(collection(pedidoDocRef, "historial"), {
                 usuario: "cliente_web",
@@ -109,8 +109,7 @@ const Pedido = () => {
             });
 
             await Promise.all([...itemsPromises, historialPromise]);
-
-            // --- 3. LLAMAR A LA FUNCIÓN DE NETLIFY PARA NOTIFICACIÓN ---
+            
             const templateParams = {
               to_name: formData.cliente.nombre,
               from_name: "Fénix Indumentaria",
@@ -143,21 +142,18 @@ const Pedido = () => {
     if (estadoEnvio === 'exito') return <MensajeFinal tipo="exito" pedidoId={pedidoIdGenerado} formData={formData} />;
     if (estadoEnvio === 'error') return <MensajeFinal tipo="error" setEstadoEnvio={setEstadoEnvio} />;
 
-    // El JSX para renderizar el componente no cambia.
     return (
         <>
             <SEO
                 title="Solicitar Presupuesto"
-                description="Creá tu pedido personalizado de indumentaria laboral en 4 simples pasos. Calidad y servicio para tu empresa."
+                description="Creá tu pedido personalizado de indumentaria laboral en 4 simples pasos."
                 ogUrl="/pedido"
             />
             <div className="bg-gray-100 min-h-screen p-4 sm:p-8 flex items-center justify-center font-sans">
                 <div className="w-full max-w-4xl bg-white/80 backdrop-blur-sm rounded-2xl shadow-2xl p-6 sm:p-10 my-8">
                     <h1 className="text-3xl font-bold text-center text-red-700 mb-2">FÉNIX</h1>
                     <p className="text-center text-gray-600 mb-8">Pedido de Indumentaria Personalizada</p>
-                    
                     <BarraProgreso pasoActual={pasoActual} />
-                    
                     <div className="overflow-x-hidden relative h-auto">
                         <AnimatePresence mode="wait" custom={direccionAnimacion}>
                             <motion.div
@@ -179,7 +175,6 @@ const Pedido = () => {
                             </motion.div>
                         </AnimatePresence>
                     </div>
-                    
                     <div className="mt-10 pt-6 border-t border-gray-200 flex justify-between items-center">
                         <motion.button onClick={pasoAnterior} className="flex items-center gap-2 px-6 py-2 bg-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" disabled={pasoActual === 1 || estadoEnvio === 'enviando'} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                             <ChevronLeft size={20} /> Volver
